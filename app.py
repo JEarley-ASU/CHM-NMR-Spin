@@ -1,0 +1,482 @@
+import streamlit as st
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.linalg import expm
+import io
+
+class SpinSystem:
+    def __init__(self, delta_A=10.0, delta_K=25.0, J=0.0, T2=0.5,
+                 gamma_A=1.0, gamma_K=1/3.98):  # A=1H (ref), K=13C (~0.251)
+        self.delta_A = delta_A
+        self.delta_K = delta_K
+        self.J = J
+        self.T2 = T2
+        self.gamma_A = gamma_A
+        self.gamma_K = gamma_K
+        self._setup_operators()
+        self.reset()
+        self.sequence_log = []
+
+    def reset(self):
+        """Reset system to thermal equilibrium with γ-weighted polarization"""
+        # Thermal Z-magnetization ~ γ * I_z for each spin (up to a constant factor)
+        pA = self.gamma_A
+        pK = self.gamma_K
+        self.rho = (self.E + pA*self.Az + pK*self.Kz) / 4
+        self.sequence_log = ["Reset to equilibrium (γ-weighted)"]
+        
+    def _setup_operators(self):
+        """Create spin operators for two-spin system"""
+        # Pauli matrices
+        sx = np.array([[0, 1], [1, 0]], dtype=complex)
+        sy = np.array([[0, -1j], [1j, 0]], dtype=complex)
+        sz = np.array([[1, 0], [0, -1]], dtype=complex)
+        I2 = np.eye(2, dtype=complex)
+        
+        # Two-spin operators (tensor products)
+        self.Ax = np.kron(sx, I2) / 2
+        self.Ay = np.kron(sy, I2) / 2
+        self.Az = np.kron(sz, I2) / 2
+        
+        self.Kx = np.kron(I2, sx) / 2
+        self.Ky = np.kron(I2, sy) / 2
+        self.Kz = np.kron(I2, sz) / 2
+        
+        self.E = np.eye(4, dtype=complex)
+        
+        # Hamiltonian
+        self.H0 = (2*np.pi*self.delta_A*self.Az + 
+                   2*np.pi*self.delta_K*self.Kz + 
+                   2*np.pi*self.J*self.Az@self.Kz)
+        
+    def pulse(self, flip_angle, phase=0, spin='AK'):
+        """Apply RF pulse"""
+        # Convert angle to radians
+        angle = np.radians(flip_angle)
+
+        # Convert phase notation
+        if phase == 'x':
+            phi = 0.0
+        elif phase == 'y':
+            phi = np.pi/2
+        elif phase == '-x':
+            phi = np.pi
+        elif phase == '-y':
+            phi = 3*np.pi/2
+        else:
+            phi = float(phase)
+
+        # Build rotation operator correctly for spin-1/2:
+        # R = cos(theta/2)*I - 2i*sin(theta/2)*(cosφ * Sx + sinφ * Sy)
+        cos_half = np.cos(angle/2)
+        sin_half = np.sin(angle/2)
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
+
+        if 'A' in spin:
+            R_A = cos_half * self.E - 2j * sin_half * (cos_phi * self.Ax + sin_phi * self.Ay)
+        else:
+            R_A = self.E
+
+        if 'K' in spin:
+            R_K = cos_half * self.E - 2j * sin_half * (cos_phi * self.Kx + sin_phi * self.Ky)
+        else:
+            R_K = self.E
+
+        R = R_A @ R_K
+
+        # Apply rotation
+        self.rho = R @ self.rho @ R.conj().T
+
+        # Log the pulse
+        phase_str = phase if isinstance(phase, str) else f"{np.degrees(phi):.0f}°"
+        self.sequence_log.append(f"Pulse: {flip_angle}°_{phase_str} on spin {spin}")
+        
+    def delay(self, time):
+        """
+        Free evolution under chemical shifts and J-coupling
+        
+        Parameters:
+        -----------
+        time : float
+            Delay time in seconds
+        """
+        if time > 0:
+            # Evolution with relaxation
+            U = expm(-1j * self.H0 * time)
+            self.rho = U @ self.rho @ U.conj().T
+            
+            # Apply T2 decay to transverse components
+            decay = np.exp(-time / self.T2)
+            for i in range(4):
+                for j in range(4):
+                    if i != j:
+                        self.rho[i, j] *= decay
+                        
+        self.sequence_log.append(f"Delay: {time*1000:.1f} ms")
+        
+    def acquire(self, duration=1.0, points=512, observe='AK'):
+        """
+        Acquire FID
+        
+        Parameters:
+        -----------
+        duration : float
+            Acquisition time in seconds
+        points : int
+            Number of points
+        observe : str
+            Which spin to detect: 'A', 'K', or 'AK'
+            
+        Returns:
+        --------
+        t : array
+            Time points
+        fid : array
+            Complex FID signal
+        """
+        self.time = np.linspace(0, duration, points)
+        self.fid = np.zeros(points, dtype=complex)
+        
+        # Save initial state
+        rho0 = self.rho.copy()
+        
+        for i, ti in enumerate(self.time):
+            self.rho = rho0.copy()
+            
+            if ti > 0:
+                # Evolve
+                U = expm(-1j * self.H0 * ti)
+                self.rho = U @ self.rho @ U.conj().T
+                
+                # T2 decay
+                decay = np.exp(-ti / self.T2)
+                for m in range(4):
+                    for n in range(4):
+                        if m != n:
+                            self.rho[m, n] *= decay
+            
+            # Detect magnetization based on observe parameter
+            if observe == 'A':
+                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
+                My = self.gamma_A * np.trace(self.rho @ self.Ay)
+            elif observe == 'K':
+                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
+                My = self.gamma_K * np.trace(self.rho @ self.Ky)
+            else:  # 'both'
+                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                      self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                      self.gamma_K * np.trace(self.rho @ self.Ky))
+                
+            self.fid[i] = Mx + 1j*My
+            
+        if np.max(self.fid) < 1e-6:
+            self.fid = np.zeros_like(self.fid)
+            
+        self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, {points} points, observe={observe}")
+
+    def acquire_with_decoupling(self, duration=1.0, points=512, observe='K', decouple='A'):
+        """
+        Acquire FID with optional decoupling
+        
+        Parameters:
+        -----------
+        duration : float
+            Acquisition time in seconds
+        points : int
+            Number of points
+        observe : str
+            Which spin to detect: 'A', 'K', or 'both'
+        decouple : str
+            Which spin to decouple: 'A', 'K', or None
+            
+        Returns:
+        --------
+        t : array
+            Time points
+        fid : array
+            Complex FID signal
+        """
+        self.time = np.linspace(0, duration, points)
+        self.fid = np.zeros(points, dtype=complex)
+        
+        # Save initial state
+        rho0 = self.rho.copy()
+        
+        # Build effective Hamiltonian with decoupling
+        if decouple == 'A':
+            # Remove A spin terms from Hamiltonian (strong irradiation averages to zero)
+            H_eff = 2*np.pi*self.delta_K*self.Kz  # Only K chemical shift remains
+        elif decouple == 'K':
+            H_eff = 2*np.pi*self.delta_A*self.Az  # Only A chemical shift remains
+        else:
+            H_eff = self.H0  # Full coupled Hamiltonian
+        
+        for i, ti in enumerate(self.time):
+            self.rho = rho0.copy()
+            
+            if ti > 0:
+                # Evolve with effective Hamiltonian
+                U = expm(-1j * H_eff * ti)
+                self.rho = U @ self.rho @ U.conj().T
+                
+                # T2 decay
+                decay = np.exp(-ti / self.T2)
+                for m in range(4):
+                    for n in range(4):
+                        if m != n:
+                            self.rho[m, n] *= decay
+            
+            # Detect magnetization
+            if observe == 'K':
+                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
+                My = self.gamma_K * np.trace(self.rho @ self.Ky)
+            elif observe == 'A':
+                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
+                My = self.gamma_A * np.trace(self.rho @ self.Ay)
+            else:
+                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                      self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                      self.gamma_K * np.trace(self.rho @ self.Ky))
+                
+            self.fid[i] = Mx + 1j*My
+        if np.max(self.fid) < 1e-6:
+            self.fid = np.zeros_like(self.fid)
+            
+        self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, observe={observe}, decouple={decouple}")
+
+    def plot_1D(self):
+        """Plot 1D FID and spectrum"""
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4))
+        
+        # FID
+        ax1.plot(self.time, np.real(self.fid), 'b-', label='Real')
+        ax1.plot(self.time, np.imag(self.fid), 'r--', label='Imaginary')
+        ax1.set_xlabel('Time (s)')
+        ax1.set_ylabel('Signal')
+        ax1.set_title('FID')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        # Spectrum
+        freq = np.fft.fftfreq(len(self.time), self.time[1]-self.time[0])
+        freq = np.fft.fftshift(freq)
+        spec = np.fft.fftshift(np.fft.fft(self.fid))
+        
+        ax2.plot(freq, np.real(spec), 'b-')
+        ax2.set_xlabel('Frequency (Hz)')
+        ax2.set_ylabel('Intensity')
+        ax2.set_title('Spectrum')
+        ax2.set_xlim([-50, 50])
+        ax2.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        return fig
+
+def initialize_session_state():
+    """Initialize session state variables"""
+    if 'nmr' not in st.session_state:
+        st.session_state.nmr = SpinSystem()
+    if 'sequence_log' not in st.session_state:
+        st.session_state.sequence_log = []
+    if 'current_sequence' not in st.session_state:
+        st.session_state.current_sequence = []
+
+def replay_sequence():
+    """Replay the current pulse sequence"""
+    if st.session_state.current_sequence:
+        st.session_state.nmr.reset()
+        for operation in st.session_state.current_sequence:
+            if operation['type'] == 'pulse':
+                st.session_state.nmr.pulse(operation['flip_angle'], operation['phase'], operation['spin'])
+            elif operation['type'] == 'delay':
+                st.session_state.nmr.delay(operation['time'])
+            elif operation['type'] == 'acquire':
+                if operation.get('decouple') is None:
+                    st.session_state.nmr.acquire(operation['duration'], operation['points'], operation['observe'])
+                else:
+                    st.session_state.nmr.acquire_with_decoupling(operation['duration'], operation['points'], operation['observe'], operation['decouple'])
+        # Always update the sequence log after replaying
+        st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+
+def main():
+    st.set_page_config(
+        page_title="NMR Spin System Simulator",
+        page_icon="🧲",
+        layout="wide"
+    )
+    
+    st.title("🧲 NMR Spin System Simulator")
+    st.markdown("Interactive simulation of two-spin NMR system with pulse sequences")
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Sidebar for parameters
+    with st.sidebar:
+        st.header("NMR Parameters")
+        
+        # Chemical shifts
+        delta_A = st.number_input("Δ_A (Hz)", value=0.0, step=0.1, format="%.1f", help="Chemical shift of spin A")
+        delta_K = st.number_input("Δ_K (Hz)", value=0.0, step=0.1, format="%.1f", help="Chemical shift of spin K")
+        
+        # J-coupling
+        J = st.number_input("J-coupling (Hz)", value=0.0, step=0.1, format="%.1f", help="Scalar coupling constant")
+        
+        # Round values to 1 decimal place
+        delta_A = round(delta_A, 1)
+        delta_K = round(delta_K, 1)
+        J = round(J, 1)
+        
+        # Relaxation (hidden, using default)
+        T2 = 0.5  # Default value, not shown in UI
+        
+        # Gyromagnetic ratios
+        gamma_A = st.slider("γ_A", 0.25, 4.0, 1.0, 0.01, help="Gyromagnetic ratio of spin A")
+        gamma_K = st.slider("γ_K", 0.25, 4.0, 0.251, 0.001, help="Gyromagnetic ratio of spin K")
+        
+        # Update system parameters
+        if st.button("Update Parameters", type="primary"):
+            st.session_state.nmr = SpinSystem(
+                delta_A=delta_A, delta_K=delta_K, J=J, T2=T2,
+                gamma_A=gamma_A, gamma_K=gamma_K
+            )
+            # Replay current sequence if one exists
+            if st.session_state.current_sequence:
+                replay_sequence()
+                st.success("Parameters updated and sequence replayed!")
+            else:
+                st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+                st.success("Parameters updated!")
+        
+        # Reset button
+        if st.button("Reset System", type="secondary"):
+            st.session_state.nmr.reset()
+            st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+            st.session_state.current_sequence = []  # Clear current sequence
+            st.success("System reset to equilibrium!")
+    
+    # Main content area
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        st.header("Pulse Sequence Controls")
+        
+        # Pulse controls
+        st.subheader("RF Pulses")
+        pulse_col1, pulse_col2 = st.columns(2)
+        
+        with pulse_col1:
+            flip_angle = st.selectbox("Flip Angle", [90, 180], index=0)
+            phase = st.selectbox("Phase", ['x', 'y', '-x', '-y'], index=1)
+        
+        with pulse_col2:
+            spin = st.selectbox("Spin", ['A', 'K', 'AK'], index=2)
+            if st.button("Apply Pulse", type="secondary"):
+                st.session_state.nmr.pulse(flip_angle, phase, spin)
+                # Store operation in current sequence
+                st.session_state.current_sequence.append({
+                    'type': 'pulse',
+                    'flip_angle': flip_angle,
+                    'phase': phase,
+                    'spin': spin
+                })
+                st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+                st.success(f"Applied {flip_angle}°_{phase} pulse on {spin}")
+        
+        # Delay controls (moved under pulse panel)
+        st.subheader("Delays")
+        delay_col1, delay_col2 = st.columns(2)
+        
+        with delay_col1:
+            delay_time = st.number_input("Delay (ms)", 0.0, 1000.0, 0.0, 1.0) / 1000.0
+        
+        with delay_col2:
+            if st.button("Apply Delay", type="secondary"):
+                st.session_state.nmr.delay(delay_time)
+                # Store operation in current sequence
+                st.session_state.current_sequence.append({
+                    'type': 'delay',
+                    'time': delay_time
+                })
+                st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+                st.success(f"Applied {delay_time*1000:.1f} ms delay")
+        
+        # Acquisition controls
+        st.subheader("Acquisition")
+        acq_col1, acq_col2 = st.columns(2)
+        
+        with acq_col1:
+            # Hidden defaults
+            duration = 2.0  # Default 2 seconds
+            points = 1200   # Default 1200 points
+            observe = st.selectbox("Observe", ['A', 'K', 'AK'], index=1)
+        
+        with acq_col2:
+            decouple = st.selectbox("Decouple", ['None', 'A', 'K'], index=0)
+            if decouple == 'None':
+                decouple = None
+            
+            if st.button("Acquire", type="primary"):
+                if decouple is None:
+                    st.session_state.nmr.acquire(duration, points, observe)
+                else:
+                    st.session_state.nmr.acquire_with_decoupling(duration, points, observe, decouple)
+                # Store operation in current sequence
+                st.session_state.current_sequence.append({
+                    'type': 'acquire',
+                    'duration': duration,
+                    'points': points,
+                    'observe': observe,
+                    'decouple': decouple
+                })
+                st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+                st.success("Acquisition completed!")
+    
+    with col2:
+        st.header("Sequence Log")
+        for i, step in enumerate(st.session_state.sequence_log):
+            st.text(f"{i+1}. {step}")
+        
+        # Undo and Clear buttons
+        undo_col, clear_col = st.columns(2)
+        
+        with undo_col:
+            if st.button("Undo Last", type="secondary"):
+                if st.session_state.current_sequence:
+                    # Remove last operation from current sequence
+                    st.session_state.current_sequence.pop()
+                    # Replay the remaining sequence
+                    if st.session_state.current_sequence:
+                        replay_sequence()
+                    else:
+                        # If no operations left, just reset
+                        st.session_state.nmr.reset()
+                        st.session_state.sequence_log = st.session_state.nmr.sequence_log.copy()
+                    st.success("Last operation undone!")
+                    st.rerun()
+                else:
+                    st.warning("No operations to undo!")
+        
+        with clear_col:
+            if st.button("Clear All", type="secondary"):
+                st.session_state.sequence_log = []
+                st.session_state.nmr.sequence_log = []
+                st.session_state.current_sequence = []
+                st.session_state.nmr.reset()
+                st.success("All cleared!")
+    
+    # Plotting section
+    st.header("Results")
+    
+    if hasattr(st.session_state.nmr, 'fid') and st.session_state.nmr.fid is not None:
+        fig = st.session_state.nmr.plot_1D()
+        st.pyplot(fig)
+    else:
+        st.info("No acquisition data available. Run an acquisition to see results.")
+    
+
+if __name__ == "__main__":
+    main()
