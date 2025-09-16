@@ -316,9 +316,22 @@ class SpinSystem:
         ax2.set_ylabel('Intensity')
         ax2.set_title('Spectrum')
         
-        # Dynamic frequency range based on chemical shifts
-        max_freq = max(abs(self.delta_A), abs(self.delta_K), 10)  # At least 10 Hz range
-        ax2.set_xlim([-max_freq*2, max_freq*2])
+        # Dynamic frequency range based on chemical shifts and J-coupling
+        # Calculate expected peak positions: delta +/- J/2
+        peak_A_high = self.delta_A + abs(self.J)/2
+        peak_A_low = self.delta_A - abs(self.J)/2
+        peak_K_high = self.delta_K + abs(self.J)/2
+        peak_K_low = self.delta_K - abs(self.J)/2
+        
+        # Find the range that covers all peaks with buffer
+        all_peaks = [peak_A_high, peak_A_low, peak_K_high, peak_K_low]
+        min_peak = min(all_peaks)
+        max_peak = max(all_peaks)
+        
+        # Add 20% buffer on each side, with minimum range of 20 Hz
+        range_size = max(max_peak - min_peak, 20)
+        buffer = range_size * 0.2
+        ax2.set_xlim([min_peak - buffer, max_peak + buffer])
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
