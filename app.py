@@ -105,17 +105,6 @@ class SpinSystem:
         Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
         My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
         print(f"After pulse: Mx_A={Mx_A:.6f}, My_A={My_A:.6f}, Mx_K={Mx_K:.6f}, My_K={My_K:.6f}")
-        
-        # Debug: check all possible antiphase terms
-        print("All antiphase terms:")
-        print(f"  AxKz: {self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz)):.6f}")
-        print(f"  AyKz: {self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz)):.6f}")
-        print(f"  AzKx: {self.gamma_A * np.trace(self.rho @ (self.Az @ self.Kx)):.6f}")
-        print(f"  AzKy: {self.gamma_A * np.trace(self.rho @ (self.Az @ self.Ky)):.6f}")
-        print(f"  KxAz: {self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az)):.6f}")
-        print(f"  KyAz: {self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az)):.6f}")
-        print(f"  KzAx: {self.gamma_K * np.trace(self.rho @ (self.Kz @ self.Ax)):.6f}")
-        print(f"  KzAy: {self.gamma_K * np.trace(self.rho @ (self.Kz @ self.Ay)):.6f}")
 
         # Log the pulse
         phase_str = phase if isinstance(phase, str) else f"{np.degrees(phi):.0f}°"
@@ -198,39 +187,22 @@ class SpinSystem:
                 # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
-                
-                # Antiphase terms - these are the key observables!
-                # 2I_Ax I_Kz and 2I_Ay I_Kz (antiphase transverse magnetization)
+                # Also detect antiphase terms that might be present
                 Mx_antiphase = self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
                 My_antiphase = self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                
-                # Additional antiphase terms that might be created
-                # 2I_Az I_Kx and 2I_Az I_Ky (longitudinal-transverse antiphase)
-                Mx_antiphase2 = self.gamma_A * np.trace(self.rho @ (self.Az @ self.Kx))
-                My_antiphase2 = self.gamma_A * np.trace(self.rho @ (self.Az @ self.Ky))
-                
-                # The key insight: antiphase terms are the main observables!
-                # These represent the quantum correlations that classical models miss
-                Mx = Mx_antiphase + Mx_antiphase2  # Focus on antiphase terms
-                My = My_antiphase + My_antiphase2
+                # Add antiphase contributions
+                Mx += Mx_antiphase
+                My += My_antiphase
             elif observe == 'K':
                 # Simple transverse magnetization
-                Mx_simple = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My_simple = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase terms - the key observables for K spin
-                # 2I_Kx I_Az and 2I_Ky I_Az (antiphase transverse magnetization)
+                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
+                My = self.gamma_K * np.trace(self.rho @ self.Ky)
+                # Also detect antiphase terms
                 Mx_antiphase = self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
                 My_antiphase = self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                # Additional antiphase terms
-                # 2I_Kz I_Ax and 2I_Kz I_Ay (longitudinal-transverse antiphase)
-                Mx_antiphase2 = self.gamma_K * np.trace(self.rho @ (self.Kz @ self.Ax))
-                My_antiphase2 = self.gamma_K * np.trace(self.rho @ (self.Kz @ self.Ay))
-                
-                # Focus on antiphase terms as the main observables
-                Mx = Mx_antiphase + Mx_antiphase2
-                My = My_antiphase + My_antiphase2
+                # Add antiphase contributions
+                Mx += Mx_antiphase
+                My += My_antiphase
             else:  # 'both'
                 # Simple transverse magnetization
                 Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
@@ -248,17 +220,6 @@ class SpinSystem:
             # Debug: print signal values for first few points
             if i < 3:
                 print(f"Point {i}: Mx={Mx:.6f}, My={My:.6f}, |fid|={abs(self.fid[i]):.6f}")
-                if observe == 'A':
-                    simple_Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
-                    simple_My = self.gamma_A * np.trace(self.rho @ self.Ay)
-                    antiphase_Mx = self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                    antiphase_My = self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                    antiphase2_Mx = self.gamma_A * np.trace(self.rho @ (self.Az @ self.Kx))
-                    antiphase2_My = self.gamma_A * np.trace(self.rho @ (self.Az @ self.Ky))
-                    print(f"  Simple: Mx={simple_Mx:.6f}, My={simple_My:.6f}")
-                    print(f"  Antiphase1 (AxKz): Mx={antiphase_Mx:.6f}, My={antiphase_My:.6f}")
-                    print(f"  Antiphase2 (AzKx): Mx={antiphase2_Mx:.6f}, My={antiphase2_My:.6f}")
-                    print(f"  Total: Mx={Mx:.6f}, My={My:.6f}")
             
         # Check for very small signals and handle appropriately
         max_signal = np.max(np.abs(self.fid))
