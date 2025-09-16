@@ -25,6 +25,17 @@ class SpinSystem:
         self.rho = (self.E + pA*self.Az + pK*self.Kz) / 4
         self.sequence_log = ["Reset to equilibrium (γ-weighted)"]
         
+        # Debug: check initial state
+        Mz_A = self.gamma_A * np.trace(self.rho @ self.Az)
+        Mz_K = self.gamma_K * np.trace(self.rho @ self.Kz)
+        print(f"Initial state: Mz_A={Mz_A:.6f}, Mz_K={Mz_K:.6f}")
+        print(f"Parameters: delta_A={self.delta_A}, delta_K={self.delta_K}, J={self.J}")
+        print(f"Gamma values: gamma_A={self.gamma_A}, gamma_K={self.gamma_K}")
+        
+        # Check if density matrix is properly normalized
+        trace_rho = np.trace(self.rho)
+        print(f"Density matrix trace: {trace_rho:.6f}")
+        
     def _setup_operators(self):
         """Create spin operators for two-spin system"""
         # Pauli matrices
@@ -88,6 +99,13 @@ class SpinSystem:
         # Apply rotation
         self.rho = R @ self.rho @ R.conj().T
 
+        # Debug: check magnetization after pulse
+        Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
+        My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
+        Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
+        My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
+        print(f"After pulse: Mx_A={Mx_A:.6f}, My_A={My_A:.6f}, Mx_K={Mx_K:.6f}, My_K={My_K:.6f}")
+
         # Log the pulse
         phase_str = phase if isinstance(phase, str) else f"{np.degrees(phi):.0f}°"
         self.sequence_log.append(f"Pulse: {flip_angle}°_{phase_str} on spin {spin}")
@@ -102,16 +120,20 @@ class SpinSystem:
             Delay time in seconds
         """
         if time > 0:
-            # Evolution with relaxation
-            U = expm(-1j * self.H0 * time)
-            self.rho = U @ self.rho @ U.conj().T
-            
-            # Apply T2 decay to transverse components
-            decay = np.exp(-time / self.T2)
-            for i in range(4):
-                for j in range(4):
-                    if i != j:
-                        self.rho[i, j] *= decay
+            try:
+                # Evolution with relaxation
+                U = expm(-1j * self.H0 * time)
+                self.rho = U @ self.rho @ U.conj().T
+                
+                # Apply T2 decay to transverse components
+                decay = np.exp(-time / self.T2)
+                for i in range(4):
+                    for j in range(4):
+                        if i != j:
+                            self.rho[i, j] *= decay
+            except Exception as e:
+                print(f"Error in delay calculation: {e}")
+                print(f"Delta_A: {self.delta_A}, Delta_K: {self.delta_K}, J: {self.J}")
                         
         self.sequence_log.append(f"Delay: {time*1000:.1f} ms")
         
@@ -145,16 +167,20 @@ class SpinSystem:
             self.rho = rho0.copy()
             
             if ti > 0:
-                # Evolve
-                U = expm(-1j * self.H0 * ti)
-                self.rho = U @ self.rho @ U.conj().T
-                
-                # T2 decay
-                decay = np.exp(-ti / self.T2)
-                for m in range(4):
-                    for n in range(4):
-                        if m != n:
-                            self.rho[m, n] *= decay
+                try:
+                    # Evolve
+                    U = expm(-1j * self.H0 * ti)
+                    self.rho = U @ self.rho @ U.conj().T
+                    
+                    # T2 decay
+                    decay = np.exp(-ti / self.T2)
+                    for m in range(4):
+                        for n in range(4):
+                            if m != n:
+                                self.rho[m, n] *= decay
+                except Exception as e:
+                    print(f"Error in acquisition evolution: {e}")
+                    print(f"Delta_A: {self.delta_A}, Delta_K: {self.delta_K}, J: {self.J}")
             
             # Detect magnetization based on observe parameter
             if observe == 'A':
@@ -171,8 +197,18 @@ class SpinSystem:
                 
             self.fid[i] = Mx + 1j*My
             
-        if np.max(self.fid) < 1e-6:
+            # Debug: print signal values for first few points
+            if i < 3:
+                print(f"Point {i}: Mx={Mx:.6f}, My={My:.6f}, |fid|={abs(self.fid[i]):.6f}")
+            
+        # Check for very small signals and handle appropriately
+        max_signal = np.max(np.abs(self.fid))
+        print(f"Max signal magnitude: {max_signal:.10f}")
+        if max_signal < 1e-6:
+            print("Signal too small, zeroing out")
             self.fid = np.zeros_like(self.fid)
+        else:
+            print(f"Signal detected: {max_signal:.10f}")
             
         self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, {points} points, observe={observe}")
 
@@ -242,8 +278,14 @@ class SpinSystem:
                       self.gamma_K * np.trace(self.rho @ self.Ky))
                 
             self.fid[i] = Mx + 1j*My
-        if np.max(self.fid) < 1e-6:
+        # Check for very small signals and handle appropriately
+        max_signal = np.max(np.abs(self.fid))
+        print(f"Max signal magnitude: {max_signal:.10f}")
+        if max_signal < 1e-6:
+            print("Signal too small, zeroing out")
             self.fid = np.zeros_like(self.fid)
+        else:
+            print(f"Signal detected: {max_signal:.10f}")
             
         self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, observe={observe}, decouple={decouple}")
 
@@ -260,6 +302,10 @@ class SpinSystem:
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
+        # Set reasonable y-axis limits
+        if np.max(np.abs(self.fid)) > 0:
+            ax1.set_ylim([-np.max(np.abs(self.fid))*1.1, np.max(np.abs(self.fid))*1.1])
+        
         # Spectrum
         freq = np.fft.fftfreq(len(self.time), self.time[1]-self.time[0])
         freq = np.fft.fftshift(freq)
@@ -269,7 +315,10 @@ class SpinSystem:
         ax2.set_xlabel('Frequency (Hz)')
         ax2.set_ylabel('Intensity')
         ax2.set_title('Spectrum')
-        ax2.set_xlim([-50, 50])
+        
+        # Dynamic frequency range based on chemical shifts
+        max_freq = max(abs(self.delta_A), abs(self.delta_K), 10)  # At least 10 Hz range
+        ax2.set_xlim([-max_freq*2, max_freq*2])
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
