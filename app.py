@@ -196,17 +196,11 @@ class SpinSystem:
             # Detect magnetization based on observe parameter
             if observe == 'A':
 <<<<<<< HEAD
-<<<<<<< HEAD
                 # Simple transverse magnetization - let's go back to basics
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
             elif observe == 'K':
                 # Simple transverse magnetization - back to basics
-=======
-                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My = self.gamma_A * np.trace(self.rho @ self.Ay)
-            elif observe == 'K':
->>>>>>> parent of 0489d29 (Update app.py)
 =======
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
