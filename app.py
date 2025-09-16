@@ -195,13 +195,42 @@ class SpinSystem:
             
             # Detect magnetization based on observe parameter
             if observe == 'A':
-                # Simple transverse magnetization - let's go back to basics
+                # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
+                
+                # Antiphase terms - these are the key observables!
+                # 2I_Ax I_Kz and 2I_Ay I_Kz (antiphase transverse magnetization)
+                Mx_antiphase = self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
+                My_antiphase = self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
+                
+                # Additional antiphase terms that might be created
+                # 2I_Az I_Kx and 2I_Az I_Ky (longitudinal-transverse antiphase)
+                Mx_antiphase2 = self.gamma_A * np.trace(self.rho @ (self.Az @ self.Kx))
+                My_antiphase2 = self.gamma_A * np.trace(self.rho @ (self.Az @ self.Ky))
+                
+                # The key insight: antiphase terms are the main observables!
+                # These represent the quantum correlations that classical models miss
+                Mx = Mx_antiphase + Mx_antiphase2  # Focus on antiphase terms
+                My = My_antiphase + My_antiphase2
             elif observe == 'K':
-                # Simple transverse magnetization - back to basics
-                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My = self.gamma_K * np.trace(self.rho @ self.Ky)
+                # Simple transverse magnetization
+                Mx_simple = self.gamma_K * np.trace(self.rho @ self.Kx)
+                My_simple = self.gamma_K * np.trace(self.rho @ self.Ky)
+                
+                # Antiphase terms - the key observables for K spin
+                # 2I_Kx I_Az and 2I_Ky I_Az (antiphase transverse magnetization)
+                Mx_antiphase = self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
+                My_antiphase = self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
+                
+                # Additional antiphase terms
+                # 2I_Kz I_Ax and 2I_Kz I_Ay (longitudinal-transverse antiphase)
+                Mx_antiphase2 = self.gamma_K * np.trace(self.rho @ (self.Kz @ self.Ax))
+                My_antiphase2 = self.gamma_K * np.trace(self.rho @ (self.Kz @ self.Ay))
+                
+                # Focus on antiphase terms as the main observables
+                Mx = Mx_antiphase + Mx_antiphase2
+                My = My_antiphase + My_antiphase2
             else:  # 'both'
                 # Simple transverse magnetization
                 Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
