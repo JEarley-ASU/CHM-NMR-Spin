@@ -195,24 +195,24 @@ class SpinSystem:
             
             # Detect magnetization based on observe parameter
             if observe == 'A':
+<<<<<<< HEAD
                 # Simple transverse magnetization - let's go back to basics
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
             elif observe == 'K':
                 # Simple transverse magnetization - back to basics
+=======
+                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
+                My = self.gamma_A * np.trace(self.rho @ self.Ay)
+            elif observe == 'K':
+>>>>>>> parent of 0489d29 (Update app.py)
                 Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
                 My = self.gamma_K * np.trace(self.rho @ self.Ky)
             else:  # 'both'
-                # Simple transverse magnetization
                 Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
                       self.gamma_K * np.trace(self.rho @ self.Kx))
                 My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
                       self.gamma_K * np.trace(self.rho @ self.Ky))
-                # Add antiphase contributions
-                Mx += (self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz)) +
-                       self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az)))
-                My += (self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz)) +
-                       self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az)))
                 
             self.fid[i] = Mx + 1j*My
             
@@ -296,36 +296,16 @@ class SpinSystem:
             
             # Detect magnetization
             if observe == 'K':
-                # Simple transverse magnetization
                 Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
                 My = self.gamma_K * np.trace(self.rho @ self.Ky)
-                # Also detect antiphase terms
-                Mx_antiphase = self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_antiphase = self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                # Add antiphase contributions
-                Mx += Mx_antiphase
-                My += My_antiphase
             elif observe == 'A':
-                # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
-                # Also detect antiphase terms
-                Mx_antiphase = self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_antiphase = self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                # Add antiphase contributions
-                Mx += Mx_antiphase
-                My += My_antiphase
             else:
-                # Simple transverse magnetization
                 Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
                       self.gamma_K * np.trace(self.rho @ self.Kx))
                 My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
                       self.gamma_K * np.trace(self.rho @ self.Ky))
-                # Add antiphase contributions
-                Mx += (self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz)) +
-                       self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az)))
-                My += (self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz)) +
-                       self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az)))
                 
             self.fid[i] = Mx + 1j*My
         # Check for very small signals and handle appropriately
