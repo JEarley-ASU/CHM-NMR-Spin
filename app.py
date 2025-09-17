@@ -204,7 +204,7 @@ class SpinSystem:
         # Check for very small signals and handle appropriately
         max_signal = np.max(np.abs(self.fid))
         print(f"Max signal magnitude: {max_signal:.10f}")
-        if max_signal < 1e-6:
+        if max_signal < 1e-10:  # Much more relaxed threshold
             print("Signal too small, zeroing out")
             self.fid = np.zeros_like(self.fid)
         else:
@@ -281,7 +281,7 @@ class SpinSystem:
         # Check for very small signals and handle appropriately
         max_signal = np.max(np.abs(self.fid))
         print(f"Max signal magnitude: {max_signal:.10f}")
-        if max_signal < 1e-6:
+        if max_signal < 1e-10:  # Much more relaxed threshold
             print("Signal too small, zeroing out")
             self.fid = np.zeros_like(self.fid)
         else:
