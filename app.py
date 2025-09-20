@@ -56,8 +56,9 @@ class SpinSystem:
         self.E = np.eye(4, dtype=complex)
         
         # Hamiltonian
-        self.H0 = (2*np.pi*self.delta_A*self.Az + 2*np.pi*self.delta_K*self.Kz + 2*np.pi*self.J*(self.Ax@self.Kx + self.Ay@self.Ky + self.Az@self.Kz))
-
+        self.H0 = (2*np.pi*self.delta_A*self.Az + 
+                   2*np.pi*self.delta_K*self.Kz + 
+                   2*np.pi*self.J*self.Az@self.Kz)
         
     def pulse(self, flip_angle, phase=0, spin='AK'):
         """Apply RF pulse"""
@@ -183,63 +184,18 @@ class SpinSystem:
             
             # Detect magnetization based on observe parameter
             if observe == 'A':
-                # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
-                
-                # Antiphase magnetization (observable in J-coupled systems)
-                # 2I_Ax I_Kz and 2I_Ay I_Kz terms
-                Mx_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                
-                # Additional coherence terms that might be created
-                # 2I_Az I_Kx and 2I_Az I_Ky terms
-                Mx_coherence = 2 * self.gamma_A * np.trace(self.rho @ (self.Az @ self.Kx))
-                My_coherence = 2 * self.gamma_A * np.trace(self.rho @ (self.Az @ self.Ky))
-                
-                # Detect the specific coherences present in the density matrix
-                # These are single-quantum coherences for spin A: |00⟩↔|10⟩ and |01⟩↔|11⟩
-                # We need to detect these directly from the density matrix elements
-                coherence_01 = self.rho[0,2] + self.rho[2,0]  # |00⟩↔|10⟩
-                coherence_23 = self.rho[1,3] + self.rho[3,1]  # |01⟩↔|11⟩
-                
-                # These coherences contribute to transverse magnetization
-                Mx_coherence_direct = self.gamma_A * (coherence_01 + coherence_23).real
-                My_coherence_direct = self.gamma_A * (coherence_01 + coherence_23).imag
-                
-                # Total signal (in-phase + antiphase + additional coherences + direct coherences)
-                Mx_total = Mx + Mx_antiphase + Mx_coherence + Mx_coherence_direct
-                My_total = My + My_antiphase + My_coherence + My_coherence_direct
-                
             elif observe == 'K':
-                # Simple transverse magnetization
                 Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
                 My = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase magnetization
-                Mx_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
             else:  # 'both'
-                # Sum of both spins
-                Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
-                Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
+                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                      self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                      self.gamma_K * np.trace(self.rho @ self.Ky))
                 
-                # Antiphase terms
-                Mx_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                Mx_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx_A + Mx_K + Mx_A_antiphase + Mx_K_antiphase
-                My_total = My_A + My_K + My_A_antiphase + My_K_antiphase
-                
-            self.fid[i] = My_total + 1j*Mx_total
+            self.fid[i] = Mx + 1j*My
             
             # Debug: print signal values for first few points
             if i < 3:
@@ -308,48 +264,20 @@ class SpinSystem:
                         if m != n:
                             self.rho[m, n] *= decay
             
-            # Detect magnetization with antiphase terms
+            # Detect magnetization
             if observe == 'K':
-                # Simple transverse magnetization
                 Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
                 My = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase magnetization
-                Mx_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
             elif observe == 'A':
-                # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
+            else:
+                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                      self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                      self.gamma_K * np.trace(self.rho @ self.Ky))
                 
-                # Antiphase magnetization
-                Mx_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
-            else:  # 'both'
-                # Sum of both spins
-                Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
-                Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase terms
-                Mx_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                Mx_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx_A + Mx_K + Mx_A_antiphase + Mx_K_antiphase
-                My_total = My_A + My_K + My_A_antiphase + My_K_antiphase
-                
-            self.fid[i] = My_total + 1j*Mx_total
+            self.fid[i] = Mx + 1j*My
         # Check for very small signals and handle appropriately
         max_signal = np.max(np.abs(self.fid))
         print(f"Max signal magnitude: {max_signal:.10f}")
@@ -608,75 +536,6 @@ def main():
     if hasattr(st.session_state.nmr, 'fid') and st.session_state.nmr.fid is not None:
         fig = st.session_state.nmr.plot_1D()
         st.pyplot(fig)
-        
-        # Final state display
-        st.subheader("Final System State")
-        
-        # Calculate magnetization components
-        Mx_A = st.session_state.nmr.gamma_A * np.trace(st.session_state.nmr.rho @ st.session_state.nmr.Ax)
-        My_A = st.session_state.nmr.gamma_A * np.trace(st.session_state.nmr.rho @ st.session_state.nmr.Ay)
-        Mz_A = st.session_state.nmr.gamma_A * np.trace(st.session_state.nmr.rho @ st.session_state.nmr.Az)
-        
-        Mx_K = st.session_state.nmr.gamma_K * np.trace(st.session_state.nmr.rho @ st.session_state.nmr.Kx)
-        My_K = st.session_state.nmr.gamma_K * np.trace(st.session_state.nmr.rho @ st.session_state.nmr.Ky)
-        Mz_K = st.session_state.nmr.gamma_K * np.trace(st.session_state.nmr.rho @ st.session_state.nmr.Kz)
-        
-        # Display magnetization in columns
-        mag_col1, mag_col2 = st.columns(2)
-        
-        with mag_col1:
-            st.write("**Spin A Magnetization:**")
-            st.write(f"Mx = {Mx_A.real:.6f} + {Mx_A.imag:.6f}i")
-            st.write(f"My = {My_A.real:.6f} + {My_A.imag:.6f}i")
-            st.write(f"Mz = {Mz_A.real:.6f} + {Mz_A.imag:.6f}i")
-            st.write(f"|M| = {np.sqrt(Mx_A.real**2 + My_A.real**2 + Mz_A.real**2):.6f}")
-        
-        with mag_col2:
-            st.write("**Spin K Magnetization:**")
-            st.write(f"Mx = {Mx_K.real:.6f} + {Mx_K.imag:.6f}i")
-            st.write(f"My = {My_K.real:.6f} + {My_K.imag:.6f}i")
-            st.write(f"Mz = {Mz_K.real:.6f} + {Mz_K.imag:.6f}i")
-            st.write(f"|M| = {np.sqrt(Mx_K.real**2 + My_K.real**2 + Mz_K.real**2):.6f}")
-        
-        # Density matrix elements (show only significant ones)
-        st.write("**Density Matrix Elements (significant only):**")
-        
-        # Find significant off-diagonal elements
-        rho = st.session_state.nmr.rho
-        significant_elements = []
-        
-        for i in range(4):
-            for j in range(4):
-                if i != j and abs(rho[i,j]) > 1e-6:
-                    significant_elements.append((i, j, rho[i,j]))
-        
-        if significant_elements:
-            for i, j, val in significant_elements:
-                st.write(f"ρ[{i},{j}] = {val.real:.6f} + {val.imag:.6f}i")
-        else:
-            st.write("No significant off-diagonal elements (diagonal density matrix)")
-        
-        # Show all density matrix elements for debugging
-        st.write("**Full Density Matrix (for debugging):**")
-        for i in range(4):
-            row = []
-            for j in range(4):
-                val = rho[i,j]
-                if abs(val) < 1e-10:
-                    row.append("0.000000")
-                else:
-                    row.append(f"{val.real:.6f}+{val.imag:.6f}i")
-            st.write(f"Row {i}: {', '.join(row)}")
-        
-        # Diagonal elements (populations)
-        st.write("**Populations (diagonal elements):**")
-        for i in range(4):
-            st.write(f"ρ[{i},{i}] = {rho[i,i].real:.6f} + {rho[i,i].imag:.6f}i")
-        
-        # Trace (should be 1)
-        trace = np.trace(rho)
-        st.write(f"**Trace: {trace.real:.6f} + {trace.imag:.6f}i**")
-        
     else:
         st.info("No acquisition data available. Run an acquisition to see results.")
     
