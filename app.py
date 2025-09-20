@@ -56,9 +56,12 @@ class SpinSystem:
         self.E = np.eye(4, dtype=complex)
         
         # Hamiltonian
+
         self.H0 = (2*np.pi*self.delta_A*self.Az + 
                    2*np.pi*self.delta_K*self.Kz + 
-                   2*np.pi*self.J*self.Az@self.Kz)
+                   2*np.pi*self.J*(self.Az@self.Kz))
+    
+        
         
     def pulse(self, flip_angle, phase=0, spin='AK'):
         """Apply RF pulse"""
