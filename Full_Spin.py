@@ -158,48 +158,18 @@ class SpinSystem:
             
             # Detect magnetization based on observe parameter
             if observe == 'A':
-                # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
-                
-                # Antiphase magnetization (observable in J-coupled systems)
-                # 2I_Ax I_Kz and 2I_Ay I_Kz terms
-                Mx_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                
-                # Total signal (in-phase + antiphase)
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
             elif observe == 'K':
-                # Simple transverse magnetization
                 Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
                 My = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase magnetization
-                Mx_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
             else:  # 'both'
-                # Sum of both spins
-                Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
-                Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
+                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                      self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                      self.gamma_K * np.trace(self.rho @ self.Ky))
                 
-                # Antiphase terms
-                Mx_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                Mx_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx_A + Mx_K + Mx_A_antiphase + Mx_K_antiphase
-                My_total = My_A + My_K + My_A_antiphase + My_K_antiphase
-                
-            self.fid[i] = My_total + 1j*Mx_total
+            self.fid[i] = Mx + 1j*My
             
         if np.max(self.fid) < 1e-6:
             self.fid = np.zeros_like(self.fid)
@@ -288,48 +258,20 @@ class SpinSystem:
                         if m != n:
                             self.rho[m, n] *= decay
             
-            # Detect magnetization with antiphase terms
+            # Detect magnetization
             if observe == 'K':
-                # Simple transverse magnetization
                 Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
                 My = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase magnetization
-                Mx_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
             elif observe == 'A':
-                # Simple transverse magnetization
                 Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
                 My = self.gamma_A * np.trace(self.rho @ self.Ay)
+            else:
+                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                      self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                      self.gamma_K * np.trace(self.rho @ self.Ky))
                 
-                # Antiphase magnetization
-                Mx_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                
-                Mx_total = Mx + Mx_antiphase
-                My_total = My + My_antiphase
-                
-            else:  # 'both'
-                # Sum of both spins
-                Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
-                Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
-                
-                # Antiphase terms
-                Mx_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ax @ self.Kz))
-                My_A_antiphase = 2 * self.gamma_A * np.trace(self.rho @ (self.Ay @ self.Kz))
-                Mx_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Kx @ self.Az))
-                My_K_antiphase = 2 * self.gamma_K * np.trace(self.rho @ (self.Ky @ self.Az))
-                
-                Mx_total = Mx_A + Mx_K + Mx_A_antiphase + Mx_K_antiphase
-                My_total = My_A + My_K + My_A_antiphase + My_K_antiphase
-                
-            self.fid[i] = My_total + 1j*Mx_total
+            self.fid[i] = Mx + 1j*My
         if np.max(self.fid) < 1e-6:
             self.fid = np.zeros_like(self.fid)
             
@@ -337,33 +279,17 @@ class SpinSystem:
 
 
 
-# Test the correct sequence: 90°-x → 1/(2J) delay → 90°-x → acquire
-nmr = SpinSystem(delta_A=0, delta_K=0, J=50)
+nmr = SpinSystem(delta_A=5, delta_K=-10, J=20)
 
-# Correct delay time for 1/(2J)
-tt = 1/(2*50)  # 10 ms for J=50 Hz
-print(f"Delay time: {tt*1000:.1f} ms")
-
+tt = 1/(4*20)
 nmr.reset()
-print("Initial state reset")
-
-# Step 1: 90°-x pulse on A
-nmr.pulse(90, 'x', spin="A")
-print("Applied 90°-x pulse on A")
-
-# Step 2: 1/(2J) delay
+nmr.pulse(90, 'y', spin="A")
 nmr.delay(tt)
-print(f"Applied {tt*1000:.1f} ms delay")
-
-# Step 3: 90°-x pulse on A (not 90°-y!)
-nmr.pulse(90, 'x', spin="A")
-print("Applied 90°-x pulse on A")
-
-# Step 4: Acquire
-nmr.acquire(duration=2.0, points=512, observe="A")
-print("Acquisition completed")
-
-# Plot results
+nmr.pulse(180, 'y', spin="AK")
+nmr.delay(tt)
+nmr.pulse(90, '-x', spin="A")
+nmr.pulse(90, 'y', spin="K")
+nmr.acquire_with_decoupling(duration=2.0, points=512, observe="K", decouple="A")
 nmr.plot_1D()
 
 
