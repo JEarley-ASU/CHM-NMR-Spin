@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.linalg import expm
 import io
+import pandas as pd
 
 class SpinSystem:
     def __init__(self, delta_A=10.0, delta_K=25.0, J=0.0, T2=0.5,
@@ -85,14 +86,17 @@ class SpinSystem:
         sin_phi = np.sin(phi)
 
         if 'A' in spin:
-            R_A = cos_half * self.E - 2j * sin_half * (cos_phi * self.Ax + sin_phi * self.Ay)
+            H_rot_A = np.cos(phi) * self.Ax + np.sin(phi) * self.Ay
+            R_A = expm(-1j * angle * H_rot_A)
         else:
-            R_A = self.E
+            R_A = self.E  # Identity
 
+        # Define rotation operator for spin K
         if 'K' in spin:
-            R_K = cos_half * self.E - 2j * sin_half * (cos_phi * self.Kx + sin_phi * self.Ky)
+            H_rot_K = np.cos(phi) * self.Kx + np.sin(phi) * self.Ky
+            R_K = expm(-1j * angle * H_rot_K)
         else:
-            R_K = self.E
+            R_K = self.E  # Identity
 
         R = R_A @ R_K
 
@@ -536,6 +540,89 @@ def main():
     if hasattr(st.session_state.nmr, 'fid') and st.session_state.nmr.fid is not None:
         fig = st.session_state.nmr.plot_1D()
         st.pyplot(fig)
+        
+        # Final state density matrix table
+        st.subheader("Final Density Matrix")
+        
+        # Get the density matrix
+        rho = st.session_state.nmr.rho
+        
+        # Create a nice table showing the density matrix
+        st.write("**Density Matrix Elements (ρ):**")
+        
+        # Create column headers
+        col_headers = ["", "|00⟩", "|01⟩", "|10⟩", "|11⟩"]
+        
+        # Create data rows
+        table_data = []
+        for i in range(4):
+            row = [f"⟨{i:02b}|"]  # Binary representation of row index
+            for j in range(4):
+                val = rho[i, j]
+                if abs(val) < 1e-10:
+                    row.append("0")
+                else:
+                    # Format complex numbers nicely
+                    if abs(val.imag) < 1e-10:
+                        row.append(f"{val.real:.6f}")
+                    else:
+                        row.append(f"{val.real:.6f}{val.imag:+.6f}i")
+            table_data.append(row)
+        
+        # Display the table
+        st.table(pd.DataFrame(table_data, columns=col_headers))
+        
+        # Add some additional information
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Trace
+            trace = np.trace(rho)
+            st.metric("Trace", f"{trace.real:.6f}{trace.imag:+.6f}i")
+        
+        with col2:
+            # Purity (Tr(ρ²))
+            purity = np.trace(rho @ rho)
+            st.metric("Purity", f"{purity.real:.6f}")
+        
+        with col3:
+            # Max off-diagonal element
+            max_off_diag = 0
+            for i in range(4):
+                for j in range(4):
+                    if i != j:
+                        max_off_diag = max(max_off_diag, abs(rho[i, j]))
+            st.metric("Max Coherence", f"{max_off_diag:.6f}")
+        
+        # Magnetization summary
+        st.subheader("Magnetization Summary")
+        
+        # Calculate magnetization components
+        Mx_A = st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Ax)
+        My_A = st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Ay)
+        Mz_A = st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Az)
+        
+        Mx_K = st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Kx)
+        My_K = st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Ky)
+        Mz_K = st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Kz)
+        
+        # Display in columns
+        mag_col1, mag_col2 = st.columns(2)
+        
+        with mag_col1:
+            st.write("**Spin A:**")
+            st.write(f"Mx = {Mx_A.real:.6f} + {Mx_A.imag:.6f}i")
+            st.write(f"My = {My_A.real:.6f} + {My_A.imag:.6f}i")
+            st.write(f"Mz = {Mz_A.real:.6f} + {Mz_A.imag:.6f}i")
+            st.write(f"|M| = {np.sqrt(Mx_A.real**2 + My_A.real**2 + Mz_A.real**2):.6f}")
+        
+        with mag_col2:
+            st.write("**Spin K:**")
+            st.write(f"Mx = {Mx_K.real:.6f} + {Mx_K.imag:.6f}i")
+            st.write(f"My = {My_K.real:.6f} + {My_K.imag:.6f}i")
+            st.write(f"Mz = {Mz_K.real:.6f} + {Mz_K.imag:.6f}i")
+            st.write(f"|M| = {np.sqrt(Mx_K.real**2 + My_K.real**2 + Mz_K.real**2):.6f}")
+        
     else:
         st.info("No acquisition data available. Run an acquisition to see results.")
     
