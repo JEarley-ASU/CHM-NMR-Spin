@@ -59,7 +59,7 @@ class SpinSystem:
         # Hamiltonian
         self.H0 = (2*np.pi*self.delta_A*self.Az + 
                    2*np.pi*self.delta_K*self.Kz + 
-                   2*np.pi*self.J*self.Az@self.Kz)
+                   2*np.pi*self.J*(self.Ax@self.Kx+self.Ay@self.Ky+self.Az@self.Kz))
         
     def pulse(self, flip_angle, phase=0, spin='AK'):
         """Apply RF pulse"""
@@ -87,7 +87,7 @@ class SpinSystem:
 
         if 'A' in spin:
             H_rot_A = np.cos(phi) * self.Ax + np.sin(phi) * self.Ay
-            R_A = expm(-1j * angle * H_rot_A)
+            R_A = expm(-1j *angle * H_rot_A)
         else:
             R_A = self.E  # Identity
 
@@ -98,17 +98,17 @@ class SpinSystem:
         else:
             R_K = self.E  # Identity
 
-        R = R_A @ R_K
+        if 'A' in spin and 'K' in spin:
+            R = R_A @ R_K  # Both spins
+        elif 'A' in spin:
+            R = R_A  # Only A
+        elif 'K' in spin:
+            R = R_K  # Only K
+        else:
+            R = self.E  # No pulse
 
         # Apply rotation
         self.rho = R @ self.rho @ R.conj().T
-
-        # Debug: check magnetization after pulse
-        Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
-        My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
-        Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
-        My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
-        print(f"After pulse: Mx_A={Mx_A:.6f}, My_A={My_A:.6f}, Mx_K={Mx_K:.6f}, My_K={My_K:.6f}")
 
         # Log the pulse
         phase_str = phase if isinstance(phase, str) else f"{np.degrees(phi):.0f}°"
@@ -143,155 +143,106 @@ class SpinSystem:
         
     def acquire(self, duration=1.0, points=512, observe='AK'):
         """
-        Acquire FID
-        
-        Parameters:
-        -----------
-        duration : float
-            Acquisition time in seconds
-        points : int
-            Number of points
-        observe : str
-            Which spin to detect: 'A', 'K', or 'AK'
-            
-        Returns:
-        --------
-        t : array
-            Time points
-        fid : array
-            Complex FID signal
+        Acquire FID using full quantum evolution.
         """
         self.time = np.linspace(0, duration, points)
         self.fid = np.zeros(points, dtype=complex)
-        
-        # Save initial state
         rho0 = self.rho.copy()
-        
-        for i, ti in enumerate(self.time):
-            self.rho = rho0.copy()
-            
-            if ti > 0:
-                try:
-                    # Evolve
-                    U = expm(-1j * self.H0 * ti)
-                    self.rho = U @ self.rho @ U.conj().T
-                    
-                    # T2 decay
-                    decay = np.exp(-ti / self.T2)
-                    for m in range(4):
-                        for n in range(4):
-                            if m != n:
-                                self.rho[m, n] *= decay
-                except Exception as e:
-                    print(f"Error in acquisition evolution: {e}")
-                    print(f"Delta_A: {self.delta_A}, Delta_K: {self.delta_K}, J: {self.J}")
-            
-            # Detect magnetization based on observe parameter
-            if observe == 'A':
-                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My = self.gamma_A * np.trace(self.rho @ self.Ay)
-            elif observe == 'K':
-                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My = self.gamma_K * np.trace(self.rho @ self.Ky)
-            else:  # 'both'
-                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
-                      self.gamma_K * np.trace(self.rho @ self.Kx))
-                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
-                      self.gamma_K * np.trace(self.rho @ self.Ky))
-                
-            self.fid[i] = Mx + 1j*My
-            
-            # Debug: print signal values for first few points
-            if i < 3:
-                print(f"Point {i}: Mx={Mx:.6f}, My={My:.6f}, |fid|={abs(self.fid[i]):.6f}")
-            
-        # Check for very small signals and handle appropriately
-        max_signal = np.max(np.abs(self.fid))
-        print(f"Max signal magnitude: {max_signal:.10f}")
-        if max_signal < 1e-10:  # Much more relaxed threshold
-            print("Signal too small, zeroing out")
-            self.fid = np.zeros_like(self.fid)
-        else:
-            print(f"Signal detected: {max_signal:.10f}")
-            
-        self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, {points} points, observe={observe}")
 
-    def acquire_with_decoupling(self, duration=1.0, points=512, observe='K', decouple='A'):
-        """
-        Acquire FID with optional decoupling
-        
-        Parameters:
-        -----------
-        duration : float
-            Acquisition time in seconds
-        points : int
-            Number of points
-        observe : str
-            Which spin to detect: 'A', 'K', or 'both'
-        decouple : str
-            Which spin to decouple: 'A', 'K', or None
-            
-        Returns:
-        --------
-        t : array
-            Time points
-        fid : array
-            Complex FID signal
-        """
-        self.time = np.linspace(0, duration, points)
-        self.fid = np.zeros(points, dtype=complex)
-        
-        # Save initial state
-        rho0 = self.rho.copy()
-        
-        # Build effective Hamiltonian with decoupling
-        if decouple == 'A':
-            # Remove A spin terms from Hamiltonian (strong irradiation averages to zero)
-            H_eff = 2*np.pi*self.delta_K*self.Kz  # Only K chemical shift remains
-        elif decouple == 'K':
-            H_eff = 2*np.pi*self.delta_A*self.Az  # Only A chemical shift remains
-        else:
-            H_eff = self.H0  # Full coupled Hamiltonian
-        
-        for i, ti in enumerate(self.time):
-            self.rho = rho0.copy()
-            
-            if ti > 0:
-                # Evolve with effective Hamiltonian
-                U = expm(-1j * H_eff * ti)
-                self.rho = U @ self.rho @ U.conj().T
-                
-                # T2 decay
-                decay = np.exp(-ti / self.T2)
+        # Detection operators
+        I_A_plus = self.Ax + 1j*self.Ay
+        I_K_plus = self.Kx + 1j*self.Ky
+
+        for i, t in enumerate(self.time):
+            rho_t = rho0.copy()
+
+            if t > 0:
+                U = expm(-1j * self.H0 * t)
+                rho_t = U @ rho_t @ U.conj().T
+
+                # T2 decay on off-diagonal elements
+                decay = np.exp(-t/self.T2)
                 for m in range(4):
                     for n in range(4):
                         if m != n:
-                            self.rho[m, n] *= decay
-            
-            # Detect magnetization
-            if observe == 'K':
-                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My = self.gamma_K * np.trace(self.rho @ self.Ky)
-            elif observe == 'A':
-                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My = self.gamma_A * np.trace(self.rho @ self.Ay)
-            else:
-                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
-                      self.gamma_K * np.trace(self.rho @ self.Kx))
-                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
-                      self.gamma_K * np.trace(self.rho @ self.Ky))
-                
-            self.fid[i] = Mx + 1j*My
-        # Check for very small signals and handle appropriately
+                            rho_t[m,n] *= decay
+
+            # Detect FID
+            if observe == 'A':
+                self.fid[i] = np.trace(rho_t @ I_A_plus)
+            elif observe == 'K':
+                self.fid[i] = np.trace(rho_t @ I_K_plus)
+            else:  # both
+                self.fid[i] = np.trace(rho_t @ I_A_plus) + np.trace(rho_t @ I_K_plus)
+
+            if i < 3:
+                print(f"Point {i}: fid={self.fid[i]:.6f}")
+
         max_signal = np.max(np.abs(self.fid))
         print(f"Max signal magnitude: {max_signal:.10f}")
-        if max_signal < 1e-10:  # Much more relaxed threshold
+        if max_signal < 1e-10:
             print("Signal too small, zeroing out")
             self.fid = np.zeros_like(self.fid)
         else:
             print(f"Signal detected: {max_signal:.10f}")
-            
+
+        self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, {points} points, observe={observe}")
+
+
+    def acquire_with_decoupling(self, duration=1.0, points=512, observe='K', decouple='A'):
+        """
+        Acquire FID with optional decoupling using full quantum evolution.
+        """
+        self.time = np.linspace(0, duration, points)
+        self.fid = np.zeros(points, dtype=complex)
+        rho0 = self.rho.copy()
+
+        # Detection operators
+        I_A_plus = self.Ax + 1j*self.Ay
+        I_K_plus = self.Kx + 1j*self.Ky
+
+        # Build effective Hamiltonian
+        if decouple == 'A':
+            H_eff = 2*np.pi*self.delta_K*self.Kz  # Only K chemical shift
+        elif decouple == 'K':
+            H_eff = 2*np.pi*self.delta_A*self.Az  # Only A chemical shift
+        else:
+            H_eff = self.H0
+
+        for i, t in enumerate(self.time):
+            rho_t = rho0.copy()
+            if t > 0:
+                U = expm(-1j * H_eff * t)
+                rho_t = U @ rho_t @ U.conj().T
+
+                # T2 decay on off-diagonal elements
+                decay = np.exp(-t/self.T2)
+                for m in range(4):
+                    for n in range(4):
+                        if m != n:
+                            rho_t[m,n] *= decay
+
+            # Detect FID
+            if observe == 'A':
+                self.fid[i] = np.trace(rho_t @ I_A_plus)
+            elif observe == 'K':
+                self.fid[i] = np.trace(rho_t @ I_K_plus)
+            else:  # both
+                self.fid[i] = np.trace(rho_t @ I_A_plus) + np.trace(rho_t @ I_K_plus)
+
+            if i < 3:
+                print(f"Point {i}: fid={self.fid[i]:.6f}")
+
+        max_signal = np.max(np.abs(self.fid))
+        print(f"Max signal magnitude: {max_signal:.10f}")
+        if max_signal < 1e-10:
+            print("Signal too small, zeroing out")
+            self.fid = np.zeros_like(self.fid)
+        else:
+            print(f"Signal detected: {max_signal:.10f}")
+
         self.sequence_log.append(f"Acquire: {duration*1000:.1f} ms, observe={observe}, decouple={decouple}")
+
 
     def plot_1D(self):
         """Plot 1D FID and spectrum"""
