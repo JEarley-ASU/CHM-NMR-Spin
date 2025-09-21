@@ -5,6 +5,13 @@ from scipy.linalg import expm
 import io
 import pandas as pd
 
+def safe_round(value, decimals=8):
+    """Safely round complex numbers to avoid overflow errors"""
+    if np.iscomplexobj(value):
+        return np.round(value.real, decimals) + 1j * np.round(value.imag, decimals)
+    else:
+        return np.round(value, decimals)
+
 class SpinSystem:
     def __init__(self, delta_A=10.0, delta_K=25.0, J=0.0, T2=0.5,
                  gamma_A=1.0, gamma_K=1):  # A=1H (ref), K=13C (~0.251)
@@ -102,12 +109,14 @@ class SpinSystem:
 
         # Apply rotation
         self.rho = R @ self.rho @ R.conj().T
+        # Round to prevent overflow errors
+        self.rho = safe_round(self.rho)
 
         # Debug: check magnetization after pulse
-        Mx_A = self.gamma_A * np.trace(self.rho @ self.Ax)
-        My_A = self.gamma_A * np.trace(self.rho @ self.Ay)
-        Mx_K = self.gamma_K * np.trace(self.rho @ self.Kx)
-        My_K = self.gamma_K * np.trace(self.rho @ self.Ky)
+        Mx_A = safe_round(self.gamma_A * np.trace(self.rho @ self.Ax))
+        My_A = safe_round(self.gamma_A * np.trace(self.rho @ self.Ay))
+        Mx_K = safe_round(self.gamma_K * np.trace(self.rho @ self.Kx))
+        My_K = safe_round(self.gamma_K * np.trace(self.rho @ self.Ky))
         print(f"After pulse: Mx_A={Mx_A:.6f}, My_A={My_A:.6f}, Mx_K={Mx_K:.6f}, My_K={My_K:.6f}")
 
         # Log the pulse
@@ -128,6 +137,8 @@ class SpinSystem:
                 # Evolution with relaxation
                 U = expm(-1j * self.H0 * time)
                 self.rho = U @ self.rho @ U.conj().T
+                # Round to prevent overflow errors
+                self.rho = safe_round(self.rho)
                 
                 # Apply T2 decay to transverse components
                 decay = np.exp(-time / self.T2)
@@ -175,6 +186,8 @@ class SpinSystem:
                     # Evolve
                     U = expm(-1j * self.H0 * ti)
                     self.rho = U @ self.rho @ U.conj().T
+                    # Round to prevent overflow errors
+                    self.rho = safe_round(self.rho)
                     
                     # T2 decay
                     decay = np.exp(-ti / self.T2)
@@ -188,15 +201,15 @@ class SpinSystem:
             
             # Detect magnetization based on observe parameter
             if observe == 'A':
-                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My = self.gamma_A * np.trace(self.rho @ self.Ay)
+                Mx = safe_round(self.gamma_A * np.trace(self.rho @ self.Ax))
+                My = safe_round(self.gamma_A * np.trace(self.rho @ self.Ay))
             elif observe == 'K':
-                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My = self.gamma_K * np.trace(self.rho @ self.Ky)
+                Mx = safe_round(self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = safe_round(self.gamma_K * np.trace(self.rho @ self.Ky))
             else:  # 'both'
-                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                Mx = safe_round(self.gamma_A * np.trace(self.rho @ self.Ax) +
                       self.gamma_K * np.trace(self.rho @ self.Kx))
-                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                My = safe_round(self.gamma_A * np.trace(self.rho @ self.Ay) +
                       self.gamma_K * np.trace(self.rho @ self.Ky))
                 
             self.fid[i] = Mx + 1j*My
@@ -260,6 +273,8 @@ class SpinSystem:
                 # Evolve with effective Hamiltonian
                 U = expm(-1j * H_eff * ti)
                 self.rho = U @ self.rho @ U.conj().T
+                # Round to prevent overflow errors
+                self.rho = safe_round(self.rho)
                 
                 # T2 decay
                 decay = np.exp(-ti / self.T2)
@@ -270,15 +285,15 @@ class SpinSystem:
             
             # Detect magnetization
             if observe == 'K':
-                Mx = self.gamma_K * np.trace(self.rho @ self.Kx)
-                My = self.gamma_K * np.trace(self.rho @ self.Ky)
+                Mx = safe_round(self.gamma_K * np.trace(self.rho @ self.Kx))
+                My = safe_round(self.gamma_K * np.trace(self.rho @ self.Ky))
             elif observe == 'A':
-                Mx = self.gamma_A * np.trace(self.rho @ self.Ax)
-                My = self.gamma_A * np.trace(self.rho @ self.Ay)
+                Mx = safe_round(self.gamma_A * np.trace(self.rho @ self.Ax))
+                My = safe_round(self.gamma_A * np.trace(self.rho @ self.Ay))
             else:
-                Mx = (self.gamma_A * np.trace(self.rho @ self.Ax) +
+                Mx = safe_round(self.gamma_A * np.trace(self.rho @ self.Ax) +
                       self.gamma_K * np.trace(self.rho @ self.Kx))
-                My = (self.gamma_A * np.trace(self.rho @ self.Ay) +
+                My = safe_round(self.gamma_A * np.trace(self.rho @ self.Ay) +
                       self.gamma_K * np.trace(self.rho @ self.Ky))
                 
             self.fid[i] = Mx + 1j*My
@@ -410,13 +425,13 @@ def main():
         if gamma_ratio <= 0.5:
             # Linear interpolation from 4:1 to 1:1
             # At 0: A=4, K=1. At 0.5: A=1, K=1
-            gamma_A = 4.0 - 6.0 * gamma_ratio  # 0->4, 0.5->1
+            gamma_A = safe_round(4.0 - 6.0 * gamma_ratio)  # 0->4, 0.5->1
             gamma_K = 1.0
         else:
             # Linear interpolation from 1:1 to 1:4
             # At 0.5: A=1, K=1. At 1: A=1, K=4
             gamma_A = 1.0
-            gamma_K = 1.0 + 6.0 * (gamma_ratio - 0.5)  # 0.5->1, 1->4
+            gamma_K = safe_round(1.0 + 6.0 * (gamma_ratio - 0.5))  # 0.5->1, 1->4
         
         # Display the actual gamma values
         st.write(f"**γ_A = {gamma_A:.3f}**")
@@ -651,13 +666,13 @@ def main():
         st.subheader("Magnetization Summary")
         
         # Calculate magnetization components
-        Mx_A = st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Ax)
-        My_A = st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Ay)
-        Mz_A = st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Az)
+        Mx_A = safe_round(st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Ax))
+        My_A = safe_round(st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Ay))
+        Mz_A = safe_round(st.session_state.nmr.gamma_A * np.trace(rho @ st.session_state.nmr.Az))
         
-        Mx_K = st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Kx)
-        My_K = st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Ky)
-        Mz_K = st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Kz)
+        Mx_K = safe_round(st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Kx))
+        My_K = safe_round(st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Ky))
+        Mz_K = safe_round(st.session_state.nmr.gamma_K * np.trace(rho @ st.session_state.nmr.Kz))
         
         # Display in columns
         mag_col1, mag_col2 = st.columns(2)
