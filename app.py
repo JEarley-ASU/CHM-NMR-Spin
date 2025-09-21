@@ -7,13 +7,13 @@ import pandas as pd
 
 class SpinSystem:
     def __init__(self, delta_A=10.0, delta_K=25.0, J=0.0, T2=0.5,
-                 gamma_A=1.0, gamma_K=1.0):  # A=1H (ref), K=13C (~0.251)
+                 gamma_A=1.0, gamma_K=1/3.98):  # A=1H (ref), K=13C (~0.251)
         self.delta_A = delta_A
         self.delta_K = delta_K
         self.J = J
         self.T2 = T2
-        self.gamma_A = gamma_A*1e-6
-        self.gamma_K = gamma_K*1e-6
+        self.gamma_A = gamma_A
+        self.gamma_K = gamma_K
         self._setup_operators()
         self.reset()
         self.sequence_log = []
@@ -23,7 +23,7 @@ class SpinSystem:
         # Thermal Z-magnetization ~ γ * I_z for each spin (up to a constant factor)
         pA = self.gamma_A
         pK = self.gamma_K
-        self.rho = pA/2*self.Az + pK/2*self.Kz
+        self.rho = (self.E + pA*self.Az + pK*self.Kz) / 4
         self.sequence_log = ["Reset to equilibrium (γ-weighted)"]
         
         # Debug: check initial state
@@ -79,7 +79,11 @@ class SpinSystem:
             phi = float(phase)
 
         # Build rotation operator correctly for spin-1/2:
-
+        # R = cos(theta/2)*I - 2i*sin(theta/2)*(cosφ * Sx + sinφ * Sy)
+        cos_half = np.cos(angle/2)
+        sin_half = np.sin(angle/2)
+        cos_phi = np.cos(phi)
+        sin_phi = np.sin(phi)
 
         if 'A' in spin:
             H_rot_A = np.cos(phi) * self.Ax + np.sin(phi) * self.Ay
