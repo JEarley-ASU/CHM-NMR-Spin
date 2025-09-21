@@ -7,7 +7,7 @@ import pandas as pd
 
 class SpinSystem:
     def __init__(self, delta_A=10.0, delta_K=25.0, J=0.0, T2=0.5,
-                 gamma_A=1.0, gamma_K=1/3.98):  # A=1H (ref), K=13C (~0.251)
+                 gamma_A=1.0, gamma_K=1):  # A=1H (ref), K=13C (~0.251)
         self.delta_A = delta_A
         self.delta_K = delta_K
         self.J = J
@@ -23,7 +23,7 @@ class SpinSystem:
         # Thermal Z-magnetization ~ γ * I_z for each spin (up to a constant factor)
         pA = self.gamma_A
         pK = self.gamma_K
-        self.rho = (self.E + pA*self.Az + pK*self.Kz) / 4
+        self.rho = (pA*self.Az + pK*self.Kz) / 2
         self.sequence_log = ["Reset to equilibrium (γ-weighted)"]
         
         # Debug: check initial state
@@ -399,9 +399,28 @@ def main():
         # Relaxation (hidden, using default)
         T2 = 0.5  # Default value, not shown in UI
         
-        # Gyromagnetic ratios
-        gamma_A = st.slider("γ_A", 0.25, 4.0, 1.0, 0.01, help="Gyromagnetic ratio of spin A")
-        gamma_K = st.slider("γ_K", 0.25, 4.0, 0.251, 0.001, help="Gyromagnetic ratio of spin K")
+        # Gyromagnetic ratio (as a ratio slider)
+        gamma_ratio = st.slider("γ_A : γ_K Ratio", 0.0, 1.0, 0.5, 0.01, 
+                               help="Ratio of gyromagnetic ratios. Left = 4:1 (A:K), Middle = 1:1 (A:K), Right = 1:4 (A:K)")
+        
+        # Calculate individual gamma values from slider position
+        # Position 0: A=4, K=1 (4:1 ratio)
+        # Position 0.5: A=1, K=1 (1:1 ratio) 
+        # Position 1: A=1, K=4 (1:4 ratio)
+        if gamma_ratio <= 0.5:
+            # Linear interpolation from 4:1 to 1:1
+            # At 0: A=4, K=1. At 0.5: A=1, K=1
+            gamma_A = 4.0 - 6.0 * gamma_ratio  # 0->4, 0.5->1
+            gamma_K = 1.0
+        else:
+            # Linear interpolation from 1:1 to 1:4
+            # At 0.5: A=1, K=1. At 1: A=1, K=4
+            gamma_A = 1.0
+            gamma_K = 1.0 + 6.0 * (gamma_ratio - 0.5)  # 0.5->1, 1->4
+        
+        # Display the actual gamma values
+        st.write(f"**γ_A = {gamma_A:.3f}**")
+        st.write(f"**γ_K = {gamma_K:.3f}**")
         
         # Update system parameters
         if st.button("Update Parameters", type="primary"):
@@ -541,20 +560,54 @@ def main():
         fig = st.session_state.nmr.plot_1D()
         st.pyplot(fig)
         
-        # Final state density matrix table
-        st.subheader("Final Density Matrix")
+        # Initial and Final state density matrix tables
+        st.subheader("Density Matrix Analysis")
         
-        # Get the density matrix
+        # Get the current density matrix
         rho = st.session_state.nmr.rho
         
-        # Create a nice table showing the density matrix
-        st.write("**Density Matrix Elements (ρ):**")
+        # Create initial density matrix that matches the reset() method exactly
+        # This should match: self.rho = (pA*self.Az + pK*self.Kz) / 2
+        gamma_A = st.session_state.nmr.gamma_A
+        gamma_K = st.session_state.nmr.gamma_K
+        
+        # Get the spin operators from the current system
+        Az = st.session_state.nmr.Az
+        Kz = st.session_state.nmr.Kz
+        
+        # Calculate initial density matrix exactly as in reset() method
+        initial_rho = (gamma_A * Az + gamma_K * Kz) / 2
+        
+        # Display initial density matrix
+        st.write("**Initial Density Matrix (Thermal Equilibrium):**")
         
         # Create column headers
         col_headers = ["", "|00⟩", "|01⟩", "|10⟩", "|11⟩"]
         
-        # Create data rows
-        table_data = []
+        # Create data rows for initial matrix
+        initial_table_data = []
+        for i in range(4):
+            row = [f"⟨{i:02b}|"]  # Binary representation of row index
+            for j in range(4):
+                val = initial_rho[i, j]
+                if abs(val) < 1e-10:
+                    row.append("0")
+                else:
+                    # Format complex numbers nicely
+                    if abs(val.imag) < 1e-10:
+                        row.append(f"{val.real:.6f}")
+                    else:
+                        row.append(f"{val.real:.6f}{val.imag:+.6f}i")
+            initial_table_data.append(row)
+        
+        # Display the initial table
+        st.table(pd.DataFrame(initial_table_data, columns=col_headers))
+        
+        # Display final density matrix
+        st.write("**Final Density Matrix (After Sequence):**")
+        
+        # Create data rows for final matrix
+        final_table_data = []
         for i in range(4):
             row = [f"⟨{i:02b}|"]  # Binary representation of row index
             for j in range(4):
@@ -567,10 +620,10 @@ def main():
                         row.append(f"{val.real:.6f}")
                     else:
                         row.append(f"{val.real:.6f}{val.imag:+.6f}i")
-            table_data.append(row)
+            final_table_data.append(row)
         
-        # Display the table
-        st.table(pd.DataFrame(table_data, columns=col_headers))
+        # Display the final table
+        st.table(pd.DataFrame(final_table_data, columns=col_headers))
         
         # Add some additional information
         col1, col2, col3 = st.columns(3)
