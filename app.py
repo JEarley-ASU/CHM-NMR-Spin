@@ -121,7 +121,7 @@ class SpinSystem:
 
         # Log the pulse
         phase_str = phase if isinstance(phase, str) else f"{np.degrees(phi):.0f}°"
-        self.sequence_log.append(f"Pulse: {flip_angle}°_{phase_str} on spin {spin}")
+        self.sequence_log.append(f"Pulse: {flip_angle}° {phase_str} on spin {spin}")
         
     def delay(self, time):
         """
@@ -335,22 +335,31 @@ class SpinSystem:
         ax2.set_ylabel('Intensity')
         ax2.set_title('Spectrum')
         
-        # Dynamic frequency range based on chemical shifts and J-coupling
-        # Calculate expected peak positions: delta +/- J/2
-        peak_A_high = self.delta_A + abs(self.J)/2
-        peak_A_low = self.delta_A - abs(self.J)/2
-        peak_K_high = self.delta_K + abs(self.J)/2
-        peak_K_low = self.delta_K - abs(self.J)/2
+        # Dynamic frequency range based on actual spectrum data
+        # Find frequencies where spectrum has significant intensity
+        spec_magnitude = np.abs(spec)
+        max_intensity = np.max(spec_magnitude)
         
-        # Find the range that covers all peaks with buffer
-        all_peaks = [peak_A_high, peak_A_low, peak_K_high, peak_K_low]
-        min_peak = min(all_peaks)
-        max_peak = max(all_peaks)
-        
-        # Add 20% buffer on each side, with minimum range of 20 Hz
-        range_size = max(max_peak - min_peak, 20)
-        buffer = range_size * 0.2
-        ax2.set_xlim([min_peak - buffer, max_peak + buffer])
+        if max_intensity > 0:
+            # Find frequencies where intensity is above 1% of maximum
+            threshold = 0.01 * max_intensity
+            significant_indices = np.where(spec_magnitude > threshold)[0]
+            
+            if len(significant_indices) > 0:
+                # Get frequency range of significant peaks
+                min_freq = freq[significant_indices[0]]
+                max_freq = freq[significant_indices[-1]]
+                
+                # Add 20% buffer on each side
+                range_size = max_freq - min_freq
+                buffer = max(range_size * 0.2, 5)  # Minimum 5 Hz buffer
+                ax2.set_xlim([min_freq - buffer, max_freq + buffer])
+            else:
+                # Fallback: show center ± 50 Hz if no significant peaks
+                ax2.set_xlim([-50, 50])
+        else:
+            # Fallback: show center ± 50 Hz if no signal
+            ax2.set_xlim([-50, 50])
         ax2.grid(True, alpha=0.3)
         
         plt.tight_layout()
